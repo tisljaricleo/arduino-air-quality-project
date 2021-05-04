@@ -1,29 +1,30 @@
 /*
- * This code is used for getting the sensor readings using Arduino.
- *
- * You can find code for running air quality sensors:
- * - MQ135 (Benzene, Alcohol, smoke)
- * - MQ6 (LPG, butane gas)
- * - MQ4 (Methane, CNG Gas)
- * - MQ7 (Carbon Monoxide)
- * - SGP30 (Co2)
- * And temperature and humidity sensor:
- * - DHT11
- */
+   This code is used for getting the sensor readings using Arduino.
+
+   You can find code for running air quality sensors:
+   - MQ135 (Benzene, Alcohol, smoke)
+   - MQ6 (LPG, butane gas)
+   - MQ4 (Methane, CNG Gas)
+   - MQ7 (Carbon Monoxide)
+   - SGP30 (Co2)
+   And temperature and humidity sensor:
+   - DHT11
+*/
 
 #include <Wire.h>
 #include "Adafruit_SGP30.h"
-#include "DHT.h"
+#include "DHTesp.h"
 
-#define PINMQ135 0
-#define PINMQ6 1
-#define PINMQ4 2
-#define PINMQ7 3
-#define PINDHT 2      // Pin for DHT readings
+#define PINMQ135 13
+#define PINMQ6 25
+#define PINMQ4 26
+#define PINMQ7 27
+#define PINDHT 32      // Pin for DHT readings
 #define DHTTYPE DHT11 // Defines sensor type
 
-DHT dht(PINDHT, DHTTYPE); // Constructor for DHT
-Adafruit_SGP30 sgp;       // Constructor for SGP30
+DHTesp dht;                           // Constructor for DHT
+TaskHandle_t tempTaskHandle = NULL;   // Task handle for the light value read task
+Adafruit_SGP30 sgp;                   // Constructor for SGP30
 
 // Sensor readings variables
 float temp = 0.0;
@@ -38,18 +39,19 @@ int sensorMQ7 = 0.0;
 // SGP30 must have its baseline values.
 // Sensor must be recalibrated befor usage.
 // Before callibration, sensor must work for at least 24h.
-bool calibrate = true;
+bool calibrate = false;
 uint16_t TVOC_base, eCO2_base;
 
 /**
- * Project setup.
- * 
- * Function that runs only once.
- *  
- */
+   Project setup.
+
+   Function that runs only once.
+
+*/
 void setup()
 {
-  Serial.begin(9600);
+  Wire.begin();
+  Serial.begin(115200);
 
   pinMode(PINMQ135, INPUT);
   pinMode(PINMQ6, INPUT);
@@ -57,34 +59,36 @@ void setup()
   pinMode(PINMQ7, INPUT);
 
   // Starts DTH11 sensor
-  dht.begin();
+  dht.setup(PINDHT, DHTesp::DHT11);
 
   // Starts SGP30 sensor
-  if (!sgp.begin())
-  {
-    Serial.println(F("SGP30 not found!"));
-    while (1)
-      ; // shut down program
+  while (!sgp.begin()) {
+    Serial.println("SGP30 not found!");
+    delay(1000);
   }
-  Serial.println(F("SGP30 OK!"));
+  Serial.println("SGP30 OK!");
+
+  // Get temperature and humidity and set values to increase the precision of SGP sensor
+  GetTempHum(false);
+  sgp.setHumidity(getAbsoluteHumidity(temp, hum));
 
   // SGP30 must have its baseline values.
   // Sensor must be recalibrated befor usage.
   // Before callibration, sensor must work for at least 24h.
-  sgp.setIAQBaseline(0x0, 0x0);
+  //sgp.setIAQBaseline(0x0, 0x0);
 }
 
 /**
- * Main code. 
- */
+   Main code.
+*/
 void loop()
 {
+  //  if (calibrate)
+  //  {
+  //    CalibrateSgp(); // Calibrates SGP sensor
+  //  }
+  //  calibrate = false;
 
-  if (calibrate)
-  {
-    CalibrateSgp(); // Calibrates SGP sensor
-  }
-  calibrate = false;
 
   GetSgp(true);        // Gets SGP readings
   GetTempHum(true);    // Gets temperature and humidity readings
@@ -97,27 +101,31 @@ void loop()
 }
 
 /**
- * Converts Arduino readings to voltage (5V pins)
- * 
- * @param reading Arduino reading (0-1023)
- * @return (float) Real voltage on pin
- */
+   Converts ESP32 dev board readings to voltage (3.3V pins)
+
+   @param reading ESP32 reading (0-4095)
+   @return (float) Real voltage on pin
+*/
 double ToVolt(int reading)
 {
-  return reading / 1024.0 * 5.0;
+  return reading / 4096.0 * 3.3;
 }
 
 /**
- * Gets temperature and humidity sensor readings
- * 
- * All values are saved to global variables at the top of this document
- * 
- * @param plot If true, results will be shown in Serial window 
- */
+   Gets temperature and humidity sensor readings
+
+   All values are saved to global variables at the top of this document
+
+   @param plot If true, results will be shown in Serial window
+*/
 void GetTempHum(bool plot)
 {
-  temp = dht.readTemperature();
-  hum = dht.readHumidity();
+  TempAndHumidity lastValues = dht.getTempAndHumidity();
+  delay(100);
+  lastValues = dht.getTempAndHumidity();
+
+  temp = lastValues.temperature;
+  hum = lastValues.humidity;
 
   if (isnan(hum) || isnan(temp))
   {
@@ -132,12 +140,13 @@ void GetTempHum(bool plot)
 }
 
 /**
- * Gets readings from all MQX sensors
- * 
- * All values are saved to global variables at the top of this document
- * 
- * @param plot If true, results will be shown in Serial window 
- */
+   Gets readings from all MQX sensors
+
+   All values are saved to global variables at the top of this document
+
+   @param plot If true, results will be shown in Serial window
+*/
+
 void GetAllSensors(bool plot)
 {
   sensorMQ135 = analogRead(PINMQ135);
@@ -192,7 +201,7 @@ void GetSgp(bool plot)
   // Check if SGP30 can get sensor reading
   if (!sgp.IAQmeasure())
   {
-    Serial.println("SGP30 read failed! Shutting down...");
+    Serial.println("SGP30 read failed!");
     return;
   }
   else
@@ -205,4 +214,12 @@ void GetSgp(bool plot)
     Serial.println("TVOC: " + String(tvoc) + " ppb");
     Serial.println("eCO2: " + String(eco2) + " ppm");
   }
+}
+
+// Borowed from https://github.com/Makerfabs/Project_Touch-Camera-ILI9341/tree/master/example/CO2_Monitor
+uint32_t getAbsoluteHumidity(float temperature, float humidity) {
+  // approximation formula from Sensirion SGP30 Driver Integration chapter 3.15
+  const float absoluteHumidity = 216.7f * ((humidity / 100.0f) * 6.112f * exp((17.62f * temperature) / (243.12f + temperature)) / (273.15f + temperature)); // [g/m^3]
+  const uint32_t absoluteHumidityScaled = static_cast<uint32_t>(1000.0f * absoluteHumidity); // [mg/m^3]
+  return absoluteHumidityScaled;
 }
