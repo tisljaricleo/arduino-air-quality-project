@@ -89,6 +89,7 @@ void loop()
   //  }
   //  calibrate = false;
 
+
   GetSgp(true);        // Gets SGP readings
   GetTempHum(true);    // Gets temperature and humidity readings
   GetAllSensors(true); // Gets readings from all MQX sensors
@@ -145,6 +146,7 @@ void GetTempHum(bool plot)
 
    @param plot If true, results will be shown in Serial window
 */
+
 void GetAllSensors(bool plot)
 {
   sensorMQ135 = analogRead(PINMQ135);
@@ -161,39 +163,39 @@ void GetAllSensors(bool plot)
   }
 }
 
-///**
-// * Calibrates SGP30 sensor
-// *
-// * Sets and prints SGP30 baseline values
-// *
-// */
-//void CalibrateSgp()
-//{
-//
-//  if (!sgp.getIAQBaseline(&eCO2_base, &TVOC_base))
-//  {
-//    Serial.println("Failed to get baseline SGP");
-//    exit(1);
-//  }
-//  else
-//  {
-//    Serial.print("Baseline -> eCO2: 0x");
-//    Serial.print(eCO2_base, HEX);
-//    Serial.print(" & TVOC: 0x");
-//    Serial.println(TVOC_base, HEX);
-//    // TODO: set baseline vals
-//    // sgp.setIAQBaseline(0x0, 0x0);
-//  }
-//  delay(1000);
-//}
+/**
+ * Calibrates SGP30 sensor
+ * 
+ * Sets and prints SGP30 baseline values
+ *  
+ */
+void CalibrateSgp()
+{
+
+  if (!sgp.getIAQBaseline(&eCO2_base, &TVOC_base))
+  {
+    Serial.println("Failed to get baseline SGP");
+    exit(1);
+  }
+  else
+  {
+    Serial.print("Baseline -> eCO2: 0x");
+    Serial.print(eCO2_base, HEX);
+    Serial.print(" & TVOC: 0x");
+    Serial.println(TVOC_base, HEX);
+    // TODO: set baseline vals
+    // sgp.setIAQBaseline(0x0, 0x0);
+  }
+  delay(1000);
+}
 
 /**
-   Gets readings from SGP30 sensor
-
-   All values are saved to global variables at the top of this document
-
-   @param plot If true, results will be shown in Serial window
-*/
+ * Gets readings from SGP30 sensor
+ * 
+ * All values are saved to global variables at the top of this document
+ * 
+ * @param plot If true, results will be shown in Serial window 
+ */
 void GetSgp(bool plot)
 {
   // Check if SGP30 can get sensor reading
