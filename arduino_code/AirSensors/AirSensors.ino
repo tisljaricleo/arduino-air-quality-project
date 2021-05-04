@@ -14,13 +14,17 @@
 #include <Wire.h>
 #include "Adafruit_SGP30.h"
 #include "DHTesp.h"
+#include <WiFi.h>
+#include <HTTPClient.h>
 
 #define PINMQ135 13
 #define PINMQ6 25
 #define PINMQ4 26
 #define PINMQ7 27
-#define PINDHT 32      // Pin for DHT readings
-#define DHTTYPE DHT11 // Defines sensor type
+#define PINDHT 32             // Pin for DHT readings
+#define DHTTYPE DHT11         // Defines sensor type
+#define WIFISSID "LeoWifi"    // Wifi name
+#define WIFIPSW "wifi12345"   // Wifi password
 
 DHTesp dht;                           // Constructor for DHT
 TaskHandle_t tempTaskHandle = NULL;   // Task handle for the light value read task
@@ -43,6 +47,64 @@ bool calibrate = false;
 uint16_t TVOC_base, eCO2_base;
 
 /**
+   Communication with server using HTTP requests
+
+   Used for sending HTTP requests.
+   Example usage:
+   1) POST: ServerCom("POST", "http://jsonplaceholder.typicode.com/posts", "");
+   2) GET: ServerCom("GET", "http://jsonplaceholder.typicode.com/comments?id=10", "");
+
+   @param m HTTP method
+   @param host Host url for request
+   @param header Define custom header
+   @return void
+*/
+void ServerCom(String m, String host, String header = "") {
+  if ((WiFi.status() == WL_CONNECTED)) { //Check the current connection status
+    Serial.println("WIFI Ready!");
+
+
+    if (m == "GET") {
+      HTTPClient http;
+      http.begin(host); //Specify the URL
+      int httpCode = http.GET();                                        //Make the request
+      Serial.println(String(httpCode));
+
+      if (httpCode > 0) { //Check for the returning code
+        String payload = http.getString();
+        Serial.println(httpCode);
+        Serial.println(payload);
+      }
+      else {
+        Serial.println("Error on GET request");
+      }
+      http.end(); //Free the resources
+    }
+
+    if (m == "POST") {
+      HTTPClient http;
+      http.begin(host);  //Specify destination for HTTP request
+      http.addHeader("Content-Type", "text/plain");             //Specify content-type header
+      int httpResponseCode = http.POST("POSTING from ESP32");   //Send the actual POST request
+
+      if (httpResponseCode > 0) {
+        String response = http.getString();                       //Get the response to the request
+        Serial.println(httpResponseCode);   //Print return code
+        Serial.println(response);           //Print request answer
+      }
+      else {
+        Serial.print("Error on sending POST: ");
+        Serial.println(httpResponseCode);
+      }
+      http.end();  //Free resources
+    }
+  }
+  else {
+    Serial.println("Wifi errorr! Request is not sent!");
+  }
+}
+
+/**
    Project setup.
 
    Function that runs only once.
@@ -52,11 +114,18 @@ void setup()
 {
   Wire.begin();
   Serial.begin(115200);
+  delay(4000);   //Delay needed before calling the WiFi.begin
 
   pinMode(PINMQ135, INPUT);
   pinMode(PINMQ6, INPUT);
   pinMode(PINMQ4, INPUT);
   pinMode(PINMQ7, INPUT);
+
+  // Connect to Wifi
+  scanNetworks();
+  connectToNetwork();
+  Serial.println(WiFi.macAddress());
+  Serial.println(WiFi.localIP());
 
   // Starts DTH11 sensor
   dht.setup(PINDHT, DHTesp::DHT11);
@@ -88,6 +157,13 @@ void loop()
   //    CalibrateSgp(); // Calibrates SGP sensor
   //  }
   //  calibrate = false;
+
+  ServerCom("GET", "http://jsonplaceholder.typicode.com/comments?id=10", "");
+  ServerCom("POST", "http://jsonplaceholder.typicode.com/posts", "");
+
+  Serial.println("#################################################");
+
+  delay(5000);
 
   GetSgp(true);        // Gets SGP readings
   GetTempHum(true);    // Gets temperature and humidity readings
@@ -214,10 +290,76 @@ void GetSgp(bool plot)
   }
 }
 
-// Borowed from https://github.com/Makerfabs/Project_Touch-Camera-ILI9341/tree/master/example/CO2_Monitor
+/**
+   Absolute humidity
+
+   Gets AbsoluteHumidity
+   Borrowed from https://github.com/Makerfabs/Project_Touch-Camera-ILI9341/tree/master/example/CO2_Monitor
+*/
 uint32_t getAbsoluteHumidity(float temperature, float humidity) {
   // approximation formula from Sensirion SGP30 Driver Integration chapter 3.15
   const float absoluteHumidity = 216.7f * ((humidity / 100.0f) * 6.112f * exp((17.62f * temperature) / (243.12f + temperature)) / (273.15f + temperature)); // [g/m^3]
   const uint32_t absoluteHumidityScaled = static_cast<uint32_t>(1000.0f * absoluteHumidity); // [mg/m^3]
   return absoluteHumidityScaled;
 }
+
+/**
+   Encryption type
+
+   Gets encryption type from wifi network
+   Borrowed from https://techtutorialsx.com
+*/
+String translateEncryptionType(wifi_auth_mode_t encryptionType) {
+  switch (encryptionType) {
+    case (WIFI_AUTH_OPEN):
+      return "Open";
+    case (WIFI_AUTH_WEP):
+      return "WEP";
+    case (WIFI_AUTH_WPA_PSK):
+      return "WPA_PSK";
+    case (WIFI_AUTH_WPA2_PSK):
+      return "WPA2_PSK";
+    case (WIFI_AUTH_WPA_WPA2_PSK):
+      return "WPA_WPA2_PSK";
+    case (WIFI_AUTH_WPA2_ENTERPRISE):
+      return "WPA2_ENTERPRISE";
+  }
+}
+
+/**
+   Scan Wifi networks
+
+   Scans all available wifi networks and prints to Console
+   Borrowed from https://techtutorialsx.com
+*/
+void scanNetworks() {
+  int numberOfNetworks = WiFi.scanNetworks();
+  Serial.print("Number of networks found: ");
+  Serial.println(numberOfNetworks);
+  for (int i = 0; i < numberOfNetworks; i++) {
+    Serial.print("Network name: ");
+    Serial.println(WiFi.SSID(i));
+    Serial.print("Signal strength: ");
+    Serial.println(WiFi.RSSI(i));
+    Serial.print("MAC address: ");
+    Serial.println(WiFi.BSSIDstr(i));
+    Serial.print("Encryption type: ");
+    String encryptionTypeDescription = translateEncryptionType(WiFi.encryptionType(i));
+    Serial.println(encryptionTypeDescription);
+    Serial.println("-----------------------");
+  }
+}
+
+/**
+   Connect to wifi
+
+   Connects to wifi network defined with SSID and password in WIFISSID and WIFIPSW variables
+   Borrowed from https://techtutorialsx.com
+*/
+void connectToNetwork() {
+  WiFi.begin(WIFISSID, WIFIPSW);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Establishing connection to WiFi..");
+  }
+  Serial.println("Connected to network");
